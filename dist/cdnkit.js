@@ -14,54 +14,56 @@ module.exports.RTCIceCandidate = window.RTCIceCandidate ||
 },{}],2:[function(require,module,exports){
 /**
  * Created by seven on 15/6/21.
+ *
+ * Image type of resource
  */
 var util = require('./util');
-var EventEmitter = require('eventemitter3');
-
-var Blob = window.Blob || window.WebkitBlob;
-var URL = window.URL || window.webkitURL;
 
 function BlobImage(element) {
     if (!(this instanceof BlobImage)) return new BlobImage(element);
-    //EventEmitter.call(this);
 
     this.log = util.log;
     this._conf = util.config;
     this.ele = element;
     this.url = this.ele.getAttribute(this._conf.kitTag);
+
+    //一个辅助变量，快速获取渲染状态
     this.isRendered = false;
-
-
-    //this.load();
+    //一个辅助变量，快速获得dataurl
+    this.dataUrl = undefined;
 }
 
-//util.inherits(BlobImage, EventEmitter);
-
-
-//BlobImage.prototype.release = function() {
-//    URL.revokeObjectURL(this.blobURL);
-//};
-
 BlobImage.prototype.render = function (url, data) {
-    var self = this;
-    if (url == self.url) {
-        self.log('BlobImage rander:' + url);
-        self.ele.src = URL.createObjectURL(data);
-        self.isRendered = true;
+    if (this.isRendered)
+        return;
+
+    if (url == this.url) {
+        if (data.constructor == Blob) {
+            util.blobToDataUrl(data, function (dataUrl) {
+                this.log('BlobImage rander:' + url);
+                this.dataUrl = dataUrl;
+                this.ele.src = dataUrl;
+                this.isRendered = true;
+            });
+        } else {
+            this.dataUrl = data;
+            this.ele.src = data;
+            this.isRendered = true;
+        }
     }
 };
 
+
 //BlobImage.
-
-
 module.exports = BlobImage;
-},{"./util":10,"eventemitter3":11}],3:[function(require,module,exports){
+},{"./util":10}],3:[function(require,module,exports){
 arguments[4][2][0].apply(exports,arguments)
-},{"./util":10,"dup":2,"eventemitter3":11}],4:[function(require,module,exports){
+},{"./util":10,"dup":2}],4:[function(require,module,exports){
 /**
  * Created by seven on 15/7/3.
  */
 
+var util = require('./util');
 
 function Cache(options) {
     if (!(this instanceof Cache)) return new Cache(options);
@@ -69,52 +71,79 @@ function Cache(options) {
     options = util.extend({
         useCache: true,
         defaultExpiry: new Date().getTime() + 500000,
-        cacheBodyTag: 'cdnkit_cache_body',
-        cacheIndexTag: 'cdnkit_cache_index'
+        storageTag: 'cdnkit_cache'
     }, options);
+    this._options = options;
+    this.log = util.log;
 
     this._localStorage = window.localStorage;
-    this._o_storage = this._localStorage.getItem(options.cacheBodyTag);
-    this._o_index = this._localStorage.getItem(options.cacheIndexTag);
-    this._dict = {};
+    this._ship = {};
 
     this.read();
 }
 
 Cache.prototype.read = function () {
-    var index = JSON.parse(this._o_index);
-    var idx = 0;
+    this._ship = JSON.parse(this._localStorage.getItem(this._options.storageTag)) || {};
 
-    for (var i = 0; i < index.length; i += 2) {
-        var url = index[i],
-            size = index[i + 1];
-
-        this._dict[url] = this._o_storage.slice(idx, size - 1);
-        idx += size;
-
-    }
 };
 
 Cache.prototype.write = function () {
-    for (var key in this._dict) {
-        //TODO
+    try {
+        this._localStorage.setItem(this._options.storageTag, JSON.stringify(this._ship));
     }
+    catch (e) {
+        this.log("Cache write to localStorage failed:", e);
+    }
+};
+
+Cache.prototype.hasItem = function (url) {
+    return !!this._cache[url];
 };
 
 Cache.prototype.getItem = function (url) {
     var self = this;
+
+    if (!!self._cache[url]) {
+        self.log("local HIT: " + url);
+        return self._cache.url;
+    }
+    self.log("local MISS: " + url);
+    return undefined;
 };
 
+Cache.prototype.setItem = function (url, dataUrl, options) {
+    var cacheObj = {};
+    if (!!this._cache[url]) {
+        // 覆盖
+        cacheObj = this._cache.url;
+        cacheObj.co = dataUrl;
+    }
+    else {
+        // 创建
+        cacheObj = {
+            co: dataUrl,// content
+            ex: undefined,// expires: TODO
+            lm: util.now(),//last-modified: TODO
+            cc: undefined,//cahe-control: TODO
+            da: util.now()//date
+        };
+    }
+
+    cacheObj = util.extend(cacheObj, options);
+
+    this._cache.url = cacheObj;
+    this.log("Cache in mem: " + url);
+
+}
+
+
 module.exports = Cache;
-},{}],5:[function(require,module,exports){
+},{"./util":10}],5:[function(require,module,exports){
 /**
  * Created by seven on 15/6/21.
  */
 var util = require('./util');
-//var EventEmitter = require('eventemitter3');
 var DomActor = require('./dom');
-
-
 
 /**
  * 总控制端
@@ -128,7 +157,6 @@ var DomActor = require('./dom');
 function CdnKit(options) {
     if (!(this instanceof CdnKit)) return new CdnKit(options);
 
-    //EventEmitter.call(this);
 
     var self = this;
     this._conf = util.config;
@@ -170,7 +198,6 @@ function CdnKit(options) {
     }, false);
 }
 
-//util.inherits(CdnKit, EventEmitter);
 
 CdnKit.prototype._init = function () {
     this._dom = new DomActor({});
@@ -183,7 +210,6 @@ module.exports = CdnKit;
  * Created by seven on 15/6/21.
  */
 var util = require('./util');
-//var EventEmitter = require('eventemitter3');
 var BlobImage = require('./blobimage');
 var Resources = require('./resources');
 var ResourceFetcher = require('./fetcher');
@@ -191,7 +217,6 @@ var Cache = require('./cache');
 
 function DomActor(options) {
     if (!(this instanceof DomActor)) return new DomActor(options);
-    //EventEmitter.call(this);
 
     this._conf = util.config;
     this.log=util.log;
@@ -206,11 +231,9 @@ function DomActor(options) {
     this._options = options;
 }
 
-//util.inherits(DomActor, EventEmitter);
-
 DomActor.prototype.init = function () {
     var self = this,
-        els = document.querySelectorAll(this._options.types.join(','))
+        els = document.querySelectorAll(this._options.types.join(','));
 
     for (var i = 0; i < els.length; ++i) {
         var el = els[i];
@@ -245,43 +268,65 @@ window.util = require('./util');
 window.Resources = require('./resources');
 window.BlobImage = require('./blobImage');
 window.ResourceFetcher = require('./fetcher');
+window.Cache = require('./cache');
 
-},{"./adapter":1,"./blobImage":2,"./cdnkit":5,"./dom":6,"./fetcher":8,"./resources":9,"./util":10}],8:[function(require,module,exports){
+},{"./adapter":1,"./blobImage":2,"./cache":4,"./cdnkit":5,"./dom":6,"./fetcher":8,"./resources":9,"./util":10}],8:[function(require,module,exports){
 /**
  * Created by seven on 15/6/30.
  */
 
 var util = require('./util');
 
-function ResourceFetcher(resources,cache) {
-    if (!(this instanceof ResourceFetcher)) return new ResourceFetcher(resources,cache);
-
+/**
+ *
+ * @param {Resources} resources
+ * @param {Cache} cache
+ * @returns {ResourceFetcher}
+ * @constructor
+ */
+function ResourceFetcher(resources, cache) {
+    if (!(this instanceof ResourceFetcher)) return new ResourceFetcher(resources, cache);
 
     this.log = util.log;
     this._conf = util.config;
     this.resources = resources;
-
-    this._loadedResource = {};
-    this._cache=cache;
+    this._cache = cache;
 
     this.log('ResourceFetcher instantiated.');
 
+    // load local cached resource
+    this._cache.read();
+
 }
-
-
+/**
+ * 加载资源顺序
+ * 1. 本地
+ * 2. p2p @TODO
+ * 3. CND
+ */
 ResourceFetcher.prototype.load = function () {
     var self = this;
 
-    for (var i in self._notLoadedUrls) {
-        self._loadFromCdn(self._notLoadedUrls[i]);
+    for (var i in self.resources) {
+        self._loadFromLocal(self._loadQueue[i]);
+    }
+
+    for (var i in self._loadQueue) {
+        self._loadFromCdn(self._loadQueue[i]);
     }
 };
 
 
-ResourceFetcher.prototype._loadFromLocal = function(url){
+ResourceFetcher.prototype._loadFromLocal = function (url) {
     var self = this;
     self.log('load from local cache!');
-
+    //TODO
+    if (self._cache.hasItem(url)){
+        var it = self._cache.getItem(url);
+        //TODO 校验缓存失效
+        self.resources.onloaded(url,it.dataUrl);
+        util.removeFromArray(url,self._loadQueue);
+    };
 };
 
 ResourceFetcher.prototype._loadFromCdn = function (url) {
@@ -311,35 +356,31 @@ ResourceFetcher.prototype._loadFromCdn = function (url) {
 
 };
 
-ResourceFetcher.prototype._cdnLoaded = function (url, data) {
+ResourceFetcher.prototype._cdnLoaded = function (url, blob) {
     var self = this;
 
-    self._loadedResource[url] = data;
-    self.resources.onloaded(url,data);
+    //self._loadedResource[url] = blob;
+    self.resources.onloaded(url, blob);
 
 };
-
 
 
 module.exports = ResourceFetcher;
 },{"./util":10}],9:[function(require,module,exports){
 /**
  * Created by seven on 15/6/30.
+ *
+ * 管理所有的资源列表
  */
 var util = require('./util');
-var EventEmitter = require('eventemitter3');
 
 function Resources() {
     if (!(this instanceof Resources)) return new Resources();
-    //EventEmitter.call(this);
-
-    this._res = [];
-    this.urls = [];
 
     this.log = util.log;
+    this._res = [];
+    this.urls = [];
 };
-
-//util.inherits(Resources, EventEmitter);
 
 Resources.prototype.push = function (res) {
     var self = this;
@@ -347,23 +388,25 @@ Resources.prototype.push = function (res) {
     self._res.push(res);
     self.urls.push(res.url);
 };
-
+/**
+ * {@link ResourceFetcher#_cdnLoaded} 下载完资源会调用此方法
+ *
+ * @param url
+ * @param data
+ */
 Resources.prototype.onloaded = function (url, data) {
     var self = this;
 
     self.log('Resources onload...');
-
     for (var k in self._res) {
         var res = self._res[k];
-        self.log(' ress for ');
-        self.log(res);
         res.rander(url, data);
     }
 };
 
 
 module.exports = Resources;
-},{"./util":10,"eventemitter3":11}],10:[function(require,module,exports){
+},{"./util":10}],10:[function(require,module,exports){
 /**
  * Created by seven on 15/6/21.
  */
@@ -470,12 +513,38 @@ var util = {
             return false;
         }
     },
-    blobToBinaryString: function(blob, cb){
+    blobToBinaryString: function (blob, cb) {
         var fr = new FileReader();
-        fr.onload = function(evt) {
+        fr.onload = function (evt) {
             cb(evt.target.result);
         };
         fr.readAsBinaryString(blob);
+    },
+    blobToDataUrl: function (blob, cb) {
+        var fr = new FileReader();
+        fr.onload = function (evt) {
+            cb(evt.target.result);
+        };
+        fr.readAsDataURL(blob);
+    },
+    now: function () {
+        var date = new Date();
+
+        //返回当前毫秒时间戳
+        return date.getTime();
+    },
+    removeFromArray: function (searchvalue, fromarray) {
+        var indexOf = function () {
+            for (var i = 0, l = fromarray.length; i < l; ++i) {
+                if (fromarray[i] == searchvalue) return i;
+            }
+            return -1;
+        };
+        var index = indexOf();
+        if (index > -1) {
+            fromarray.splice(index, 1);
+        }
+        return fromarray;
     }
 };
 
@@ -483,238 +552,7 @@ util.SHA1 = new Hashes.SHA1;
 
 
 module.exports = util;
-},{"jshashes":12}],11:[function(require,module,exports){
-'use strict';
-
-/**
- * Representation of a single EventEmitter function.
- *
- * @param {Function} fn Event handler to be called.
- * @param {Mixed} context Context for function execution.
- * @param {Boolean} once Only emit once
- * @api private
- */
-function EE(fn, context, once) {
-  this.fn = fn;
-  this.context = context;
-  this.once = once || false;
-}
-
-/**
- * Minimal EventEmitter interface that is molded against the Node.js
- * EventEmitter interface.
- *
- * @constructor
- * @api public
- */
-function EventEmitter() { /* Nothing to set */ }
-
-/**
- * Holds the assigned EventEmitters by name.
- *
- * @type {Object}
- * @private
- */
-EventEmitter.prototype._events = undefined;
-
-/**
- * Return a list of assigned event listeners.
- *
- * @param {String} event The events that should be listed.
- * @returns {Array}
- * @api public
- */
-EventEmitter.prototype.listeners = function listeners(event) {
-  if (!this._events || !this._events[event]) return [];
-  if (this._events[event].fn) return [this._events[event].fn];
-
-  for (var i = 0, l = this._events[event].length, ee = new Array(l); i < l; i++) {
-    ee[i] = this._events[event][i].fn;
-  }
-
-  return ee;
-};
-
-/**
- * Emit an event to all registered event listeners.
- *
- * @param {String} event The name of the event.
- * @returns {Boolean} Indication if we've emitted an event.
- * @api public
- */
-EventEmitter.prototype.emit = function emit(event, a1, a2, a3, a4, a5) {
-  if (!this._events || !this._events[event]) return false;
-
-  var listeners = this._events[event]
-    , len = arguments.length
-    , args
-    , i;
-
-  if ('function' === typeof listeners.fn) {
-    if (listeners.once) this.removeListener(event, listeners.fn, true);
-
-    switch (len) {
-      case 1: return listeners.fn.call(listeners.context), true;
-      case 2: return listeners.fn.call(listeners.context, a1), true;
-      case 3: return listeners.fn.call(listeners.context, a1, a2), true;
-      case 4: return listeners.fn.call(listeners.context, a1, a2, a3), true;
-      case 5: return listeners.fn.call(listeners.context, a1, a2, a3, a4), true;
-      case 6: return listeners.fn.call(listeners.context, a1, a2, a3, a4, a5), true;
-    }
-
-    for (i = 1, args = new Array(len -1); i < len; i++) {
-      args[i - 1] = arguments[i];
-    }
-
-    listeners.fn.apply(listeners.context, args);
-  } else {
-    var length = listeners.length
-      , j;
-
-    for (i = 0; i < length; i++) {
-      if (listeners[i].once) this.removeListener(event, listeners[i].fn, true);
-
-      switch (len) {
-        case 1: listeners[i].fn.call(listeners[i].context); break;
-        case 2: listeners[i].fn.call(listeners[i].context, a1); break;
-        case 3: listeners[i].fn.call(listeners[i].context, a1, a2); break;
-        default:
-          if (!args) for (j = 1, args = new Array(len -1); j < len; j++) {
-            args[j - 1] = arguments[j];
-          }
-
-          listeners[i].fn.apply(listeners[i].context, args);
-      }
-    }
-  }
-
-  return true;
-};
-
-/**
- * Register a new EventListener for the given event.
- *
- * @param {String} event Name of the event.
- * @param {Functon} fn Callback function.
- * @param {Mixed} context The context of the function.
- * @api public
- */
-EventEmitter.prototype.on = function on(event, fn, context) {
-  var listener = new EE(fn, context || this);
-
-  if (!this._events) this._events = {};
-  if (!this._events[event]) this._events[event] = listener;
-  else {
-    if (!this._events[event].fn) this._events[event].push(listener);
-    else this._events[event] = [
-      this._events[event], listener
-    ];
-  }
-
-  return this;
-};
-
-/**
- * Add an EventListener that's only called once.
- *
- * @param {String} event Name of the event.
- * @param {Function} fn Callback function.
- * @param {Mixed} context The context of the function.
- * @api public
- */
-EventEmitter.prototype.once = function once(event, fn, context) {
-  var listener = new EE(fn, context || this, true);
-
-  if (!this._events) this._events = {};
-  if (!this._events[event]) this._events[event] = listener;
-  else {
-    if (!this._events[event].fn) this._events[event].push(listener);
-    else this._events[event] = [
-      this._events[event], listener
-    ];
-  }
-
-  return this;
-};
-
-/**
- * Remove event listeners.
- *
- * @param {String} event The event we want to remove.
- * @param {Function} fn The listener that we need to find.
- * @param {Boolean} once Only remove once listeners.
- * @api public
- */
-EventEmitter.prototype.removeListener = function removeListener(event, fn, once) {
-  if (!this._events || !this._events[event]) return this;
-
-  var listeners = this._events[event]
-    , events = [];
-
-  if (fn) {
-    if (listeners.fn && (listeners.fn !== fn || (once && !listeners.once))) {
-      events.push(listeners);
-    }
-    if (!listeners.fn) for (var i = 0, length = listeners.length; i < length; i++) {
-      if (listeners[i].fn !== fn || (once && !listeners[i].once)) {
-        events.push(listeners[i]);
-      }
-    }
-  }
-
-  //
-  // Reset the array, or remove it completely if we have no more listeners.
-  //
-  if (events.length) {
-    this._events[event] = events.length === 1 ? events[0] : events;
-  } else {
-    delete this._events[event];
-  }
-
-  return this;
-};
-
-/**
- * Remove all listeners or only the listeners for the specified event.
- *
- * @param {String} event The event want to remove all listeners for.
- * @api public
- */
-EventEmitter.prototype.removeAllListeners = function removeAllListeners(event) {
-  if (!this._events) return this;
-
-  if (event) delete this._events[event];
-  else this._events = {};
-
-  return this;
-};
-
-//
-// Alias methods names because people roll like that.
-//
-EventEmitter.prototype.off = EventEmitter.prototype.removeListener;
-EventEmitter.prototype.addListener = EventEmitter.prototype.on;
-
-//
-// This function doesn't apply anymore.
-//
-EventEmitter.prototype.setMaxListeners = function setMaxListeners() {
-  return this;
-};
-
-//
-// Expose the module.
-//
-EventEmitter.EventEmitter = EventEmitter;
-EventEmitter.EventEmitter2 = EventEmitter;
-EventEmitter.EventEmitter3 = EventEmitter;
-
-//
-// Expose the module.
-//
-module.exports = EventEmitter;
-
-},{}],12:[function(require,module,exports){
+},{"jshashes":11}],11:[function(require,module,exports){
 (function (global){
 /**
  * jshashes - https://github.com/h2non/jshashes
