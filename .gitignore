@@ -78,5 +78,5 @@ build/Release
 node_modules
 
 
-dist/cdnkit.js
-dist/cdnkit.min.js
+dist/
+
