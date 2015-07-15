@@ -26,6 +26,7 @@ function BlobImage(element) {
     this._conf = util.config;
     this.ele = element;
     this.url = this.ele.getAttribute(this._conf.kitTag);
+    this.key = new util.sha1().b64(this.url);//util.SHA1().b64(this.url);
 
     //一个辅助变量，快速获取渲染状态
     this.isRendered = false;
@@ -33,23 +34,24 @@ function BlobImage(element) {
     this.dataUrl = undefined;
 }
 
-BlobImage.prototype.render = function (url, data) {
+BlobImage.prototype.render = function (data) {
+    var self = this;
     if (this.isRendered)
         return;
 
-    if (url == this.url) {
-        if (data.constructor == Blob) {
-            util.blobToDataUrl(data, function (dataUrl) {
-                this.log('BlobImage rander:' + url);
-                this.dataUrl = dataUrl;
-                this.ele.src = dataUrl;
-                this.isRendered = true;
-            });
-        } else {
-            this.dataUrl = data;
-            this.ele.src = data;
-            this.isRendered = true;
-        }
+    if (data.constructor == Blob) {
+        util.blobToDataUrl(data, function (dataUrl) {
+
+            self.dataUrl = dataUrl;
+            self.ele.src = dataUrl;
+            self.isRendered = true;
+            self.log(this.key + ' rander:' + dataUrl);
+        });
+    } else {
+        self.dataUrl = data;
+        self.ele.src = data;
+        self.isRendered = true;
+        self.log(this.key + ' rander:' + dataUrl);
     }
 };
 
@@ -96,26 +98,26 @@ Cache.prototype.write = function () {
     }
 };
 
-Cache.prototype.hasItem = function (url) {
-    return !!this._cache[url];
+Cache.prototype.hasItem = function (hashKey) {
+    return this._ship.hasOwnProperty(hashKey);
 };
 
-Cache.prototype.getItem = function (url) {
+Cache.prototype.getItem = function (hashKey) {
     var self = this;
 
-    if (!!self._cache[url]) {
-        self.log("local HIT: " + url);
-        return self._cache.url;
+    if (self.hasItem(hashKey)) {
+        self.log("local HIT: " + hashKey);
+        return self._ship[hashKey];
     }
-    self.log("local MISS: " + url);
+    self.log("local MISS: " + hashKey);
     return undefined;
 };
 
-Cache.prototype.setItem = function (url, dataUrl, options) {
+Cache.prototype.setItem = function (hashKey, dataUrl, options) {
     var cacheObj = {};
-    if (!!this._cache[url]) {
+    if (this.hasItem(hashKey)) {
         // 覆盖
-        cacheObj = this._cache.url;
+        cacheObj = this._cache[hashKey];
         cacheObj.co = dataUrl;
     }
     else {
@@ -131,8 +133,8 @@ Cache.prototype.setItem = function (url, dataUrl, options) {
 
     cacheObj = util.extend(cacheObj, options);
 
-    this._cache.url = cacheObj;
-    this.log("Cache in mem: " + url);
+    this._ship[hashKey] = cacheObj;
+    this.log("Cached in: " + hashKey);
 
 }
 
@@ -157,11 +159,9 @@ var DomActor = require('./dom');
 function CdnKit(options) {
     if (!(this instanceof CdnKit)) return new CdnKit(options);
 
-
     var self = this;
     this._conf = util.config;
     this._cache = new Cache({});
-
 
     if (!util.isSupportedBrowser()) {
         document.addEventListener('DOMContentLoaded', function () {
@@ -197,7 +197,6 @@ function CdnKit(options) {
         self._init();
     }, false);
 }
-
 
 CdnKit.prototype._init = function () {
     this._dom = new DomActor({});
@@ -270,7 +269,8 @@ window.BlobImage = require('./blobImage');
 window.ResourceFetcher = require('./fetcher');
 window.Cache = require('./cache');
 
-},{"./adapter":1,"./blobImage":2,"./cache":4,"./cdnkit":5,"./dom":6,"./fetcher":8,"./resources":9,"./util":10}],8:[function(require,module,exports){
+window.Hashes = require('jshashes');
+},{"./adapter":1,"./blobImage":2,"./cache":4,"./cdnkit":5,"./dom":6,"./fetcher":8,"./resources":9,"./util":10,"jshashes":11}],8:[function(require,module,exports){
 /**
  * Created by seven on 15/6/30.
  */
@@ -289,7 +289,8 @@ function ResourceFetcher(resources, cache) {
 
     this.log = util.log;
     this._conf = util.config;
-    this.resources = resources;
+
+    this._resources = resources;
     this._cache = cache;
 
     this.log('ResourceFetcher instantiated.');
@@ -305,62 +306,62 @@ function ResourceFetcher(resources, cache) {
  * 3. CND
  */
 ResourceFetcher.prototype.load = function () {
-    var self = this;
+    var self = this,
+        res = self._resources;
+    //
+    //for (var i in self.resources) {
+    //    self._loadFromLocal(self._loadQueue[i]);
+    //}
 
-    for (var i in self.resources) {
-        self._loadFromLocal(self._loadQueue[i]);
-    }
-
-    for (var i in self._loadQueue) {
-        self._loadFromCdn(self._loadQueue[i]);
+    // 从本地的缓冲里先获取资源
+    res.iterator();
+    while (res.hasNext()) {
+        var next = res.next();
+        // 如果本地查找缓冲失败
+        if (!this._loadFromLocal(next)) {
+            // 去远程下载
+            this._mixLoad(next);
+        }
     }
 };
 
 
-ResourceFetcher.prototype._loadFromLocal = function (url) {
-    var self = this;
+ResourceFetcher.prototype._loadFromLocal = function (resource) {
+    var self = this,
+        hashKey = resource.key;
+
     self.log('load from local cache!');
-    //TODO
-    if (self._cache.hasItem(url)){
-        var it = self._cache.getItem(url);
+
+    if (self._cache.hasItem(hashKey)) {
+        var localItem = self._cache.getItem(hashKey);
         //TODO 校验缓存失效
-        self.resources.onloaded(url,it.dataUrl);
-        util.removeFromArray(url,self._loadQueue);
-    };
+        resource.render(localItem.dataUrl);
+        return true;
+    }
+    return false;
 };
 
-ResourceFetcher.prototype._loadFromCdn = function (url) {
+ResourceFetcher.prototype._mixLoad = function (resource) {
     var self = this;
+    // TODO p2p 下载
 
+    // 从CDN下载
     var xhr = new XMLHttpRequest();
-
     xhr.responseType = 'arraybuffer';
-    xhr.open('GET', url, true);
-
+    xhr.open('GET', resource.url, true);
     xhr.onload = function (evt) {
-        self.log(evt);
         var arrayBuffer = new Uint8Array(xhr.response);
-
         var mime = xhr.getResponseHeader('Content-Type');
         mime = mime ? mime.split(';')[0] : 'image/jpeg';
 
         var blob = new Blob([arrayBuffer], {type: mime});
-        self.log(blob);
-
-        self._cdnLoaded(url, blob);
+        resource.render(blob);
+        self._cache.write();
     };
     xhr.onerror = function (evt) {
-        self.log(evt.error, err);
+        self.log('load from cdn: ', evt.error);
     };
     xhr.send();
-
-};
-
-ResourceFetcher.prototype._cdnLoaded = function (url, blob) {
-    var self = this;
-
-    //self._loadedResource[url] = blob;
-    self.resources.onloaded(url, blob);
 
 };
 
@@ -373,35 +374,39 @@ module.exports = ResourceFetcher;
  * 管理所有的资源列表
  */
 var util = require('./util');
-
+/**
+ * {@link BlobImage}的管理者
+ *
+ * @returns {Resources}
+ * @constructor
+ */
 function Resources() {
     if (!(this instanceof Resources)) return new Resources();
 
     this.log = util.log;
-    this._res = [];
-    this.urls = [];
+    this._container = [];
+
+    // 用于迭代
+    this._current = 0;
+
 };
 
 Resources.prototype.push = function (res) {
-    var self = this;
-
-    self._res.push(res);
-    self.urls.push(res.url);
+    this._container.push(res);
 };
-/**
- * {@link ResourceFetcher#_cdnLoaded} 下载完资源会调用此方法
- *
- * @param url
- * @param data
- */
-Resources.prototype.onloaded = function (url, data) {
-    var self = this;
 
-    self.log('Resources onload...');
-    for (var k in self._res) {
-        var res = self._res[k];
-        res.rander(url, data);
-    }
+// 可迭代
+Resources.prototype.iterator = function () {
+    this._current = 0;
+};
+Resources.prototype.next = function () {
+    if (this._current >= this._container.length)
+        throw StopIteration;
+    else
+        return this._container[this._current++];
+};
+Resources.prototype.hasNext = function () {
+    return this._current < this._container.length;
 };
 
 
@@ -533,22 +538,8 @@ var util = {
         //返回当前毫秒时间戳
         return date.getTime();
     },
-    removeFromArray: function (searchvalue, fromarray) {
-        var indexOf = function () {
-            for (var i = 0, l = fromarray.length; i < l; ++i) {
-                if (fromarray[i] == searchvalue) return i;
-            }
-            return -1;
-        };
-        var index = indexOf();
-        if (index > -1) {
-            fromarray.splice(index, 1);
-        }
-        return fromarray;
-    }
+    sha1: Hashes.SHA1
 };
-
-util.SHA1 = new Hashes.SHA1;
 
 
 module.exports = util;
