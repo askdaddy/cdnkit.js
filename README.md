@@ -1,4 +1,4 @@
-# cdnkit
+# cdnkit [![Build Status](https://travis-ci.org/askdaddy/cdnkit.js.svg?branch=dev)](https://travis-ci.org/askdaddy/cdnkit.js)
 
 安装
 ------
