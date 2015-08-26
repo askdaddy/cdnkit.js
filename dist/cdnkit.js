@@ -58,9 +58,7 @@ BlobImage.prototype.render = function (data) {
 
 //BlobImage.
 module.exports = BlobImage;
-},{"./util":10}],3:[function(require,module,exports){
-arguments[4][2][0].apply(exports,arguments)
-},{"./util":10,"dup":2}],4:[function(require,module,exports){
+},{"./util":9}],3:[function(require,module,exports){
 /**
  * Created by seven on 15/7/3.
  */
@@ -140,7 +138,7 @@ Cache.prototype.setItem = function (hashKey, dataUrl, options) {
 
 
 module.exports = Cache;
-},{"./util":10}],5:[function(require,module,exports){
+},{"./util":9}],4:[function(require,module,exports){
 /**
  * Created by seven on 15/6/21.
  */
@@ -204,7 +202,7 @@ CdnKit.prototype._init = function () {
 };
 
 module.exports = CdnKit;
-},{"./dom":6,"./util":10}],6:[function(require,module,exports){
+},{"./dom":5,"./util":9}],5:[function(require,module,exports){
 /**
  * Created by seven on 15/6/21.
  */
@@ -251,7 +249,7 @@ DomActor.handler= {
 
 
 module.exports = DomActor;
-},{"./blobimage":3,"./cache":4,"./fetcher":8,"./resources":9,"./util":10}],7:[function(require,module,exports){
+},{"./blobimage":2,"./cache":3,"./fetcher":7,"./resources":8,"./util":9}],6:[function(require,module,exports){
 /**
  * Created by seven on 15/6/21.
  */
@@ -265,12 +263,12 @@ window.CdnKit = require('./cdnkit');
 window.util = require('./util');
 
 window.Resources = require('./resources');
-window.BlobImage = require('./blobImage');
+window.BlobImage = require('./blobimage');
 window.ResourceFetcher = require('./fetcher');
 window.Cache = require('./cache');
 
 window.Hashes = require('jshashes');
-},{"./adapter":1,"./blobImage":2,"./cache":4,"./cdnkit":5,"./dom":6,"./fetcher":8,"./resources":9,"./util":10,"jshashes":11}],8:[function(require,module,exports){
+},{"./adapter":1,"./blobimage":2,"./cache":3,"./cdnkit":4,"./dom":5,"./fetcher":7,"./resources":8,"./util":9,"jshashes":10}],7:[function(require,module,exports){
 /**
  * Created by seven on 15/6/30.
  */
@@ -367,7 +365,7 @@ ResourceFetcher.prototype._mixLoad = function (resource) {
 
 
 module.exports = ResourceFetcher;
-},{"./util":10}],9:[function(require,module,exports){
+},{"./util":9}],8:[function(require,module,exports){
 /**
  * Created by seven on 15/6/30.
  *
@@ -411,7 +409,7 @@ Resources.prototype.hasNext = function () {
 
 
 module.exports = Resources;
-},{"./util":10}],10:[function(require,module,exports){
+},{"./util":9}],9:[function(require,module,exports){
 /**
  * Created by seven on 15/6/21.
  */
@@ -543,7 +541,7 @@ var util = {
 
 
 module.exports = util;
-},{"jshashes":11}],11:[function(require,module,exports){
+},{"jshashes":10}],10:[function(require,module,exports){
 (function (global){
 /**
  * jshashes - https://github.com/h2non/jshashes
@@ -2312,4 +2310,4 @@ module.exports = util;
 }()); // IIFE
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}]},{},[7]);
+},{}]},{},[6]);
